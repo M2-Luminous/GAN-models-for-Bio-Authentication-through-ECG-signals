@@ -10,7 +10,7 @@ from tensorflow.keras.models import load_model
 # --------------------
 # Load your trained model
 # --------------------
-loaded_model = load_model("my_ecg_model.h5")
+loaded_model = load_model("C:/Users/M2-Winterfell/Downloads/my_ecg_model.h5")
 print("Model loaded successfully.")
 
 # --------------------
