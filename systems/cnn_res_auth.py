@@ -8,10 +8,13 @@ import dash_bootstrap_components as dbc
 from tensorflow.keras.models import load_model
 
 # --------------------
-# Load your trained model
+# Load your trained models
 # --------------------
 loaded_model = load_model("C:/Users/M2-Winterfell/Downloads/my_ecg_cnn_model.h5")
-print("Model loaded successfully.")
+print("CNN model loaded successfully.")
+
+loaded_resnet = load_model("C:/Users/M2-Winterfell/Downloads/my_ecg_resnet_model.h5")
+print("ResNet model loaded successfully.")
 
 # --------------------
 # Define normalization function
@@ -30,8 +33,7 @@ server = app.server
 # --------------------
 # Layout Components
 # --------------------
-# Create a logo placeholder for "BLS INTERNATIONAL" 
-# (replace the text with an actual image if you have a logo file)
+# Logo placeholder
 logo_header = dbc.Row(
     [
         dbc.Col(
@@ -57,7 +59,6 @@ login_card = dbc.Card(
                     placeholder='Enter your email', 
                     className="form-control mb-3"
                 ),
-                
                 html.Label("Password *", className="text-white"),
                 dcc.Input(
                     id='password', 
@@ -65,22 +66,19 @@ login_card = dbc.Card(
                     placeholder='Enter your password', 
                     className="form-control mb-2"
                 ),
-                
                 html.Div(
                     [
                         html.A("Forgot password?", href="#", className="me-auto"),
                     ],
                     className="mb-3 text-end"
                 ),
-
                 dbc.Button(
                     "Verify",
                     id='submit-button',
                     n_clicks=0,
-                    color="warning",  # matches the gold/amber look
+                    color="warning",
                     className="w-100"
                 ),
-                
                 html.Div(
                     [
                         "Not registered yet? ",
@@ -118,9 +116,8 @@ ecg_card = dbc.Card(
                     multiple=False
                 ),
                 html.Div(id='upload-status', className="text-warning mb-3"),
-                
                 dcc.Graph(id='ecg-graph', style={"border": "1px solid #444"}),
-                
+                # This Div will hold the results table for both models
                 html.Div(
                     id='prediction-result',
                     style={'margin': '10px', 'fontWeight': 'bold', 'color': '#FFD700'}
@@ -215,12 +212,13 @@ def display_page(pathname):
 )
 def process_uploaded_file(contents, filename):
     """
-    Handles the uploaded .asc file:
+    Processes the uploaded .asc file:
     1. Reads it into a numpy array.
     2. Normalizes data.
-    3. Reshapes it to (1, 5000, 1) for the model.
-    4. Gets the model prediction and updates the graph + result text.
-    5. Enables the Verify button only if the ECG is predicted "Real".
+    3. Reshapes it to (1, 5000, 1) for the models.
+    4. Gets predictions from both the CNN and ResNet models.
+    5. Builds a table to display each model's classification result.
+    6. Enables the "Verify" button only if both models predict "Real".
     """
     if contents is not None:
         content_type, content_string = contents.split(',')
@@ -238,10 +236,44 @@ def process_uploaded_file(contents, filename):
             ecg_data = min_max_normalize(ecg_data)
             ecg_input = ecg_data.reshape(1, 5000, 1)
             
-            # Model prediction
-            prediction_prob = loaded_model.predict(ecg_input)
-            prediction_label = "Real" if prediction_prob[0][0] > 0.5 else "Fake"
-            result_text = f"Prediction: {prediction_label} (Probability: {prediction_prob[0][0]:.2f})"
+            # Model predictions
+            prediction_prob_cnn = loaded_model.predict(ecg_input)
+            prediction_label_cnn = "Real" if prediction_prob_cnn[0][0] > 0.5 else "Fake"
+            
+            prediction_prob_resnet = loaded_resnet.predict(ecg_input)
+            prediction_label_resnet = "Real" if prediction_prob_resnet[0][0] > 0.5 else "Fake"
+            
+            # Build a table with classification results from both models
+            result_table = dbc.Table(
+                [
+                    html.Thead(
+                        html.Tr([html.Th("Model"), html.Th("Prediction"), html.Th("Probability")])
+                    ),
+                    html.Tbody(
+                        [
+                            html.Tr([
+                                html.Td("CNN Model"),
+                                html.Td(prediction_label_cnn),
+                                html.Td(f"{prediction_prob_cnn[0][0]:.2f}")
+                            ]),
+                            html.Tr([
+                                html.Td("ResNet Model"),
+                                html.Td(prediction_label_resnet),
+                                html.Td(f"{prediction_prob_resnet[0][0]:.2f}")
+                            ])
+                        ]
+                    )
+                ],
+                bordered=True,
+                dark=True,
+                hover=True,
+                responsive=True,
+                striped=True,
+                className="mt-3"
+            )
+            
+            # Enable "Verify" button only if both models predict "Real"
+            submit_disabled = (prediction_label_cnn != "Real" or prediction_label_resnet != "Real")
             
             # Create ECG visualization
             fig = go.Figure(data=go.Scatter(y=ecg_data, mode='lines', line=dict(color='orange')))
@@ -249,19 +281,16 @@ def process_uploaded_file(contents, filename):
                 title='ECG Signal',
                 xaxis_title='Time',
                 yaxis_title='Amplitude',
-                template='plotly_dark',   # keeps it consistent with dark theme
+                template='plotly_dark',
                 paper_bgcolor='#2c2c2c',
                 plot_bgcolor='#2c2c2c',
                 font=dict(color='white')
             )
             
-            # Enable "Verify" button only if the ECG is predicted as "Real"
-            submit_disabled = (prediction_label != "Real")
-            
             return (
                 f"File '{filename}' loaded successfully.",
                 fig,
-                result_text,
+                result_table,
                 submit_disabled
             )
         except Exception as e:
@@ -288,7 +317,7 @@ def process_uploaded_file(contents, filename):
 )
 def login(n_clicks, email, password):
     """
-    Checks if the user has clicked "Verify" and provided some email/password.
+    Checks if the user has clicked "Verify" and provided email/password.
     If so, navigate to /success. Otherwise, remain on the login page.
     """
     if n_clicks > 0:
