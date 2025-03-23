@@ -1,6 +1,8 @@
+import os
 import base64
 import io
 import numpy as np
+import pandas as pd
 import plotly.graph_objs as go
 import dash
 from dash import html, dcc, Input, Output, State
@@ -13,10 +15,6 @@ from scipy.signal import welch
 # ECG Analysis function using NeuroKit2 and spectral analysis
 # --------------------
 def analyze_ecg(ecg_signal, fs=500, verbose=False):
-    """
-    Process the ECG signal and compute fiducial features, HRV, and RR spectral metrics.
-    Returns a dictionary of results and a classification ('Human' or 'Fake').
-    """
     try:
         signals, info = nk.ecg_process(ecg_signal, sampling_rate=fs)
     except Exception as e:
@@ -42,7 +40,6 @@ def analyze_ecg(ecg_signal, fs=500, verbose=False):
             print(f"[Error] Could not delineate waves: {e}")
         return {"classification": "Fake", "error": str(e)}
     
-    # Initialize lists for fiducial features
     pr_intervals = []
     qrs_durations = []
     qt_intervals = []
@@ -60,11 +57,9 @@ def analyze_ecg(ecg_signal, fs=500, verbose=False):
         p_peak   = wave_peaks["ECG_P_Peaks"][idx] if idx < len(wave_peaks["ECG_P_Peaks"]) else None
         t_peak   = wave_peaks["ECG_T_Peaks"][idx] if idx < len(wave_peaks["ECG_T_Peaks"]) else None
 
-        # Skip beat if any critical index is missing
         if any(v is None for v in [p_onset, p_offset, q_onset, s_offset, t_onset, t_offset]):
             continue
 
-        # Convert indices (samples) to milliseconds
         p_onset_time   = p_onset   / fs * 1000
         p_offset_time  = p_offset  / fs * 1000
         q_onset_time   = q_onset   / fs * 1000
@@ -73,7 +68,6 @@ def analyze_ecg(ecg_signal, fs=500, verbose=False):
         t_onset_time   = t_onset   / fs * 1000
         t_offset_time  = t_offset  / fs * 1000
 
-        # Compute intervals and durations
         pr_interval_ms = r_time - p_onset_time
         if pr_interval_ms > 0:
             pr_intervals.append(pr_interval_ms)
@@ -87,7 +81,6 @@ def analyze_ecg(ecg_signal, fs=500, verbose=False):
         if p_duration_ms > 0:
             p_durations.append(p_duration_ms)
 
-        # Record amplitudes from the cleaned signal
         if r_idx < len(signals["ECG_Clean"]):
             r_amplitudes.append(signals["ECG_Clean"][r_idx])
         if t_peak is not None and t_peak < len(signals["ECG_Clean"]):
@@ -105,26 +98,10 @@ def analyze_ecg(ecg_signal, fs=500, verbose=False):
     r_mean   = np.mean(r_amplitudes) if len(r_amplitudes) > 0 else 0
     t_mean   = np.mean(t_amplitudes) if len(t_amplitudes) > 0 else 0
 
-    # HRV (Time-domain) Analysis
-    rr_intervals = np.diff(r_peaks) / fs * 1000  # in milliseconds
+    rr_intervals = np.diff(r_peaks) / fs * 1000
     rr_mean = np.mean(rr_intervals) if len(rr_intervals) > 0 else 0
     sdnn = np.std(rr_intervals) if len(rr_intervals) > 1 else 0
     rmssd = np.sqrt(np.mean(np.diff(rr_intervals)**2)) if len(rr_intervals) > 1 else 0
-
-    # RR Spectral Analysis using Welch's method
-    rr_intervals_sec = np.diff(r_peaks) / fs
-    first_beat_time = r_peaks[0] / fs
-    beat_times = np.insert(np.cumsum(rr_intervals_sec), 0, first_beat_time)
-    rr_times = (beat_times[:-1] + beat_times[1:]) / 2.0
-    resample_rate = 4.0  # Hz
-    time_interp = np.arange(beat_times[0], beat_times[-1], 1/resample_rate)
-    rr_interp = np.interp(time_interp, rr_times, rr_intervals_sec)
-    f, pxx = welch(rr_interp, fs=resample_rate, nperseg=len(rr_interp))
-    lf_mask = (f >= 0.04) & (f < 0.15)
-    hf_mask = (f >= 0.15) & (f < 0.4)
-    lf_power = np.trapz(pxx[lf_mask], f[lf_mask])
-    hf_power = np.trapz(pxx[hf_mask], f[hf_mask])
-    lf_hf_ratio = lf_power / hf_power if hf_power > 0 else np.nan
 
     if verbose:
         print("\n==== ECG Analysis Results ====")
@@ -138,11 +115,7 @@ def analyze_ecg(ecg_signal, fs=500, verbose=False):
         print(f"T amplitude mean (mV): {t_mean:.4f}")
         print(f"HRV - SDNN (ms): {sdnn:.2f}")
         print(f"HRV - RMSSD (ms): {rmssd:.2f}")
-        print(f"LF power: {lf_power:.4f}")
-        print(f"HF power: {hf_power:.4f}")
-        print(f"LF/HF ratio: {lf_hf_ratio:.4f}")
 
-    # Naive thresholds for classification (example values)
     if not (120 <= pr_mean <= 220):
         classification = "Fake"
     elif not (60 <= qrs_mean <= 130):
@@ -159,8 +132,6 @@ def analyze_ecg(ecg_signal, fs=500, verbose=False):
         classification = "Fake"
     elif np.std(qt_intervals) < 10:
         classification = "Fake"
-    elif lf_hf_ratio < 0.5 or lf_hf_ratio > 3.0:
-        classification = "Fake"
     else:
         classification = "Human"
 
@@ -176,9 +147,6 @@ def analyze_ecg(ecg_signal, fs=500, verbose=False):
         "RR_mean": rr_mean,
         "SDNN": sdnn,
         "RMSSD": rmssd,
-        "LF_power": lf_power,
-        "HF_power": hf_power,
-        "LF/HF_ratio": lf_hf_ratio
     }
 
 # --------------------
@@ -187,7 +155,6 @@ def analyze_ecg(ecg_signal, fs=500, verbose=False):
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
 server = app.server
 
-# Layout Components
 header = dbc.Row(
     dbc.Col(
         html.H1("ECG Enhanced Analysis", className="text-center text-white mt-3", style={"fontWeight": "bold"}),
@@ -220,7 +187,7 @@ upload_card = dbc.Card(
 
 graph_card = dbc.Card(
     [
-        dbc.CardHeader(html.H4("Raw ECG Signal", className="text-white mb-0"), className="bg-dark"),
+        dbc.CardHeader(html.H4("Raw ECG Signal (Normalized)", className="text-white mb-0"), className="bg-dark"),
         dbc.CardBody(
             dcc.Graph(id='ecg-graph', style={"border": "1px solid #444"})
         )
@@ -253,9 +220,10 @@ app.layout = html.Div(
     ]
 )
 
-# --------------------
-# Callback to process the uploaded file and update visualization and analysis results
-# --------------------
+# ------------------------------------------------------------------------------
+# Callback: Process uploaded file, update visualization and analysis results,
+# and display additional graphs comparing with the 2000 ECG dataset.
+# ------------------------------------------------------------------------------
 @app.callback(
     [
         Output('upload-status', 'children'),
@@ -270,28 +238,30 @@ def process_uploaded_file(contents, filename):
         content_type, content_string = contents.split(',')
         decoded = base64.b64decode(content_string)
         try:
-            # Read the uploaded file into a numpy array.
             s = io.StringIO(decoded.decode('utf-8'))
             ecg_data = np.loadtxt(s)
             if ecg_data.ndim > 1:
-                ecg_data = ecg_data[:, 0]  # use first column if multiple exist
+                ecg_data = ecg_data[:, 0]
             
-            # Create an ECG plot using Plotly for the raw signal.
-            fig = go.Figure(data=go.Scatter(y=ecg_data, mode='lines', line=dict(color='orange')))
-            fig.update_layout(
-                title='ECG Signal',
+            # Apply MinMax scaling to normalize the ECG signal to [-1, 1]
+            scaled_ecg_data = 2 * (ecg_data - np.min(ecg_data)) / (np.max(ecg_data) - np.min(ecg_data)) - 1
+            
+            # Plot the normalized raw ECG signal.
+            raw_fig = go.Figure(data=go.Scatter(y=scaled_ecg_data, mode='lines', line=dict(color='orange')))
+            raw_fig.update_layout(
+                title='ECG Signal (Normalized to [-1, 1])',
                 xaxis_title='Samples',
-                yaxis_title='Amplitude',
+                yaxis_title='Normalized Amplitude',
                 template='plotly_dark',
                 paper_bgcolor='#2c2c2c',
                 plot_bgcolor='#2c2c2c',
                 font=dict(color='white')
             )
             
-            # Analyze the ECG signal.
-            result = analyze_ecg(ecg_data, fs=500, verbose=True)
+            # Analyze the original (unscaled) ECG for physical metrics.
+            result = analyze_ecg(scaled_ecg_data, fs=500, verbose=True)
             
-            # Build tables for displaying the analysis results.
+            # Build result tables.
             table1 = html.Table(
                 [
                     html.Tr([html.Th("Metric", style={"padding": "8px", "border": "1px solid #ddd"}),
@@ -319,18 +289,7 @@ def process_uploaded_file(contents, filename):
                 style={"width": "100%", "borderCollapse": "collapse", "margin": "20px 0", "color": "white"}
             )
 
-            table3 = html.Table(
-                [
-                    html.Tr([html.Th("Metric", style={"padding": "8px", "border": "1px solid #ddd"}),
-                             html.Th("Value", style={"padding": "8px", "border": "1px solid #ddd"})]),
-                    html.Tr([html.Td("LF power"), html.Td(f"{result.get('LF_power', 0):.4f}")]),
-                    html.Tr([html.Td("HF power"), html.Td(f"{result.get('HF_power', 0):.4f}")]),
-                    html.Tr([html.Td("LF/HF ratio"), html.Td(f"{result.get('LF/HF_ratio', 0):.4f}")])
-                ],
-                style={"width": "100%", "borderCollapse": "collapse", "margin": "20px 0", "color": "white"}
-            )
-            
-            # Generate the NeuroKit2 processed ECG diagram.
+            # Generate NeuroKit2 processed ECG diagram.
             plt.rcParams["figure.figsize"] = (12, 8)
             signals2, info2 = nk.ecg_process(ecg_data, sampling_rate=500)
             nk.ecg_plot(signals2, info2)
@@ -339,12 +298,64 @@ def process_uploaded_file(contents, filename):
             buf.seek(0)
             neurokit_image = base64.b64encode(buf.read()).decode("utf-8")
             plt.close()
-
             neurokit_img_div = html.Div(
                 [
                     html.H4("NeuroKit2 Processed ECG Diagram", className="text-white"),
                     html.Img(src=f"data:image/png;base64,{neurokit_image}", style={"width": "50%", "height": "auto", "marginBottom": "20px"})
                 ]
+            )
+            
+            # --------------------------
+            # Additional Graphs: Compare with 2000 ECG dataset.
+            # --------------------------
+            csv_filename = "C:/Users/M2-Winterfell/Downloads/GAN-models-for-Bio-Authentication-through-ECG-signals/systems/real_ecgs_metrics.csv"
+            if os.path.exists(csv_filename):
+                df_metrics = pd.read_csv(csv_filename)
+            else:
+                df_metrics = pd.DataFrame()
+            
+            metrics_keys = {
+                "PR_mean": "PR interval mean (ms)",
+                "QRS_mean": "QRS duration mean (ms)",
+                "QT_mean": "QT interval mean (ms)",
+                "P_duration_mean": "P wave duration mean (ms)",
+                "R_amplitude_mean": "R amplitude mean (mV)",
+                "T_amplitude_mean": "T amplitude mean (mV)",
+                "RR_mean": "RR interval mean (ms)",
+                "SDNN": "SDNN (ms)",
+                "RMSSD": "RMSSD (ms)"
+            }
+            
+            graphs = []
+            for key, label in metrics_keys.items():
+                fig_metric = go.Figure()
+                if not df_metrics.empty and key in df_metrics.columns:
+                    fig_metric.add_trace(go.Histogram(x=df_metrics[key], nbinsx=50, name="Dataset"))
+                    new_value = result.get(key, None)
+                    if new_value is not None:
+                        fig_metric.add_vline(x=new_value, line_color="red", line_width=3,
+                                               annotation_text="New ECG", annotation_position="top right")
+                fig_metric.update_layout(
+                    title=label,
+                    xaxis_title=label,
+                    yaxis_title="Count",
+                    template="plotly_dark",
+                    paper_bgcolor='#2c2c2c',
+                    plot_bgcolor='#2c2c2c',
+                    font=dict(color='white')
+                )
+                graphs.append(
+                    dbc.Col(dcc.Graph(figure=fig_metric), width=3)
+                )
+            
+            rows = []
+            for i in range(0, len(graphs), 4):
+                row = dbc.Row(graphs[i:i+4], className="mb-4")
+                rows.append(row)
+            
+            graphs_div = html.Div(
+                [html.H4("Comparison with 2000 ECG Dataset", className="text-white mb-3")] + rows,
+                style={"marginTop": "20px"}
             )
             
             results_div = html.Div(
@@ -354,21 +365,17 @@ def process_uploaded_file(contents, filename):
                     table1,
                     html.H4("HRV Metrics", className="text-white"),
                     table2,
-                    html.H4("RR Spectral Analysis", className="text-white"),
-                    table3
+                    graphs_div
                 ],
                 style={"marginTop": "20px"}
             )
             
-            return f"File '{filename}' loaded successfully.", fig, results_div
+            return f"File '{filename}' loaded successfully.", raw_fig, results_div
 
         except Exception as e:
             return f"Error processing the file: {str(e)}", go.Figure(), html.Div()
     else:
         return "Please upload an ECG file (.asc)", go.Figure(), html.Div()
 
-# --------------------
-# Run Server
-# --------------------
 if __name__ == '__main__':
     app.run_server(debug=True)
