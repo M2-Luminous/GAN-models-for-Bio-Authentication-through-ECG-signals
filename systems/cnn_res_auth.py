@@ -10,10 +10,10 @@ from tensorflow.keras.models import load_model
 # --------------------
 # Load your trained models
 # --------------------
-loaded_model = load_model("C:/Users/M2-Winterfell/Downloads/my_ecg_cnn_model.h5")
+loaded_model = load_model("C:/Users/M2-Winterfell/Downloads/my_ecg_cnn_model_ver2.h5")
 print("CNN model loaded successfully.")
 
-loaded_resnet = load_model("C:/Users/M2-Winterfell/Downloads/my_ecg_resnet_model.h5")
+loaded_resnet = load_model("C:/Users/M2-Winterfell/Downloads/my_ecg_resnet_model_ver2.h5")
 print("ResNet model loaded successfully.")
 
 # --------------------
@@ -330,4 +330,4 @@ def login(n_clicks, email, password):
 # Run Server
 # --------------------
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(debug=True, port=8050)

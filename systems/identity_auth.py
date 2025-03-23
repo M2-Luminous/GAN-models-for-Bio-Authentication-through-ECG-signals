@@ -286,4 +286,4 @@ def login(n_clicks, email, password):
 # Run Server
 # -----------------------------
 if __name__ == '__main__':
-    app.run_server(debug=True, use_reloader=False)
+    app.run_server(debug=True, port=8051, use_reloader=False)

@@ -378,4 +378,4 @@ def process_uploaded_file(contents, filename):
         return "Please upload an ECG file (.asc)", go.Figure(), html.Div()
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(debug=True, port=8052)
