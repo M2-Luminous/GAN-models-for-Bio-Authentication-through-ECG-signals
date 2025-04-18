@@ -345,12 +345,12 @@ def process_uploaded_file(contents, filename):
                     font=dict(color='white')
                 )
                 graphs.append(
-                    dbc.Col(dcc.Graph(figure=fig_metric), width=3)
+                    dbc.Col(dcc.Graph(figure=fig_metric), width=4)
                 )
             
             rows = []
-            for i in range(0, len(graphs), 4):
-                row = dbc.Row(graphs[i:i+4], className="mb-4")
+            for i in range(0, len(graphs), 3):
+                row = dbc.Row(graphs[i:i+3], className="mb-4")
                 rows.append(row)
             
             graphs_div = html.Div(

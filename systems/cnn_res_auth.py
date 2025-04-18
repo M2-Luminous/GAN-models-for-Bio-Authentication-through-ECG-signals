@@ -8,7 +8,7 @@ import dash_bootstrap_components as dbc
 from tensorflow.keras.models import load_model
 
 # --------------------
-# Load your trained models
+# Load trained models
 # --------------------
 loaded_model = load_model("C:/Users/M2-Winterfell/Downloads/my_ecg_cnn_model_ver2.h5")
 print("CNN model loaded successfully.")

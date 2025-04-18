@@ -63,10 +63,8 @@ lead_I_real = lead_I_real.reshape(-1, signal_length, 1)
 # -----------------------------
 # Load the Identity Model and Build the Embedding Model
 # -----------------------------
-# (Assuming your identity model was saved with an extra classification head)
 loaded_model = load_model("C:/Users/M2-Winterfell/Downloads/my_ecg_identity_model.h5")
 # Create an embedding model that outputs the 128-dim normalized feature vector.
-# (Assuming that the second-to-last layer is the L2 normalization layer)
 embedding_model = Model(inputs=loaded_model.input, outputs=loaded_model.layers[-2].output)
 
 # Pre-compute embeddings for all registered users (from the loaded training ECGs)
